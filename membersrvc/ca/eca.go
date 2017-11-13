@@ -46,6 +46,7 @@ type ECA struct {
 	*CA
 	obcKey          []byte
 	obcPriv, obcPub []byte
+	gRPCServer      *grpc.Server
 }
 
 func initializeECATables(db *sql.DB) error {
@@ -55,7 +56,7 @@ func initializeECATables(db *sql.DB) error {
 // NewECA sets up a new ECA.
 //
 func NewECA() *ECA {
-	eca := &ECA{NewCA("eca", initializeECATables), nil, nil, nil}
+	eca := &ECA{CA: NewCA("eca", initializeECATables)}
 
 	{
 		// read or create global symmetric encryption key
@@ -135,18 +136,17 @@ func (eca *ECA) populateUsersTable() {
 		if err != nil {
 			Panic.Panicln(err)
 		}
-		var affiliation, affiliationRole, memberMetadata, registrar string
-		if len(vals) >= 4 {
+		var affiliation, memberMetadata, registrar string
+		if len(vals) >= 3 {
 			affiliation = vals[2]
-			affiliationRole = vals[3]
-			if len(vals) >= 5 {
-				memberMetadata = vals[4]
-				if len(vals) >= 6 {
-					registrar = vals[5]
+			if len(vals) >= 4 {
+				memberMetadata = vals[3]
+				if len(vals) >= 5 {
+					registrar = vals[4]
 				}
 			}
 		}
-		eca.registerUser(id, affiliation, affiliationRole, pb.Role(role), registrar, memberMetadata, vals[1])
+		eca.registerUser(id, affiliation, pb.Role(role), registrar, memberMetadata, vals[1])
 	}
 }
 
@@ -182,16 +182,35 @@ func (eca *ECA) populateAffiliationGroupsTable() {
 // Start starts the ECA.
 //
 func (eca *ECA) Start(srv *grpc.Server) {
+	Info.Println("Starting ECA...")
+
 	eca.startECAP(srv)
 	eca.startECAA(srv)
+	eca.gRPCServer = srv
 
 	Info.Println("ECA started.")
 }
 
+// Stop stops the ECA services.
+func (eca *ECA) Stop() {
+	Info.Println("Stopping ECA services...")
+	if eca.gRPCServer != nil {
+		eca.gRPCServer.Stop()
+	}
+	err := eca.CA.Stop()
+	if err != nil {
+		Error.Println("ECA Error stopping services ", err)
+	} else {
+		Info.Println("ECA stopped")
+	}
+}
+
 func (eca *ECA) startECAP(srv *grpc.Server) {
 	pb.RegisterECAPServer(srv, &ECAP{eca})
+	Info.Println("ECA PUBLIC gRPC API server started")
 }
 
 func (eca *ECA) startECAA(srv *grpc.Server) {
 	pb.RegisterECAAServer(srv, &ECAA{eca})
+	Info.Println("ECA ADMIN gRPC API server started")
 }
